@@ -1,13 +1,16 @@
 import { test, expect, describe, beforeAll, afterAll } from "@jest/globals";
-import supertest from "supertest";
+import { FastifyInstance } from "fastify";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { Type } from "@sinclair/typebox";
+import { Type, Static } from "@sinclair/typebox";
 import { v4 as uuidv4 } from "uuid";
+import { CreateSuperheroSchema, SuperheroSchema } from "./src/types";
+
+interface Superhero extends Static<typeof SuperheroSchema> {}
+interface CreateSuperheroRequest extends Static<typeof CreateSuperheroSchema> {}
 
 describe("Superhero API Tests", () => {
-  let app;
-  let server;
+  let app: FastifyInstance;
 
   beforeAll(async () => {
     // Create Fastify instance
@@ -35,7 +38,7 @@ describe("Superhero API Tests", () => {
     });
 
     // Initialize test data
-    let superheroes = [
+    let superheroes: Superhero[] = [
       {
         id: uuidv4(),
         name: "Captain Humility",
@@ -46,7 +49,10 @@ describe("Superhero API Tests", () => {
     ];
 
     // Register routes
-    app.post(
+    app.post<{
+      Body: CreateSuperheroRequest;
+      Reply: Superhero;
+    }>(
       "/superheroes",
       {
         schema: {
@@ -58,7 +64,7 @@ describe("Superhero API Tests", () => {
       },
       async (request, reply) => {
         const id = uuidv4();
-        const superhero = {
+        const superhero: Superhero = {
           id,
           ...request.body,
           avatar: `https://api.dicebear.com/9.x/notionists/svg?scale=100&seed=${encodeURIComponent(
@@ -71,7 +77,9 @@ describe("Superhero API Tests", () => {
       }
     );
 
-    app.get(
+    app.get<{
+      Reply: Superhero[];
+    }>(
       "/superheroes",
       {
         schema: {
@@ -85,7 +93,10 @@ describe("Superhero API Tests", () => {
       }
     );
 
-    app.delete(
+    app.delete<{
+      Params: { id: string };
+      Reply: { message: string; deletedHero?: Superhero };
+    }>(
       "/superheroes/:id",
       {
         schema: {
@@ -137,7 +148,7 @@ describe("Superhero API Tests", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      const heroes = JSON.parse(response.payload);
+      const heroes = JSON.parse(response.payload) as Superhero[];
 
       expect(Array.isArray(heroes)).toBe(true);
 
@@ -164,7 +175,7 @@ describe("Superhero API Tests", () => {
 
   describe("POST /superheroes", () => {
     test("should create a new superhero", async () => {
-      const newHero = {
+      const newHero: CreateSuperheroRequest = {
         name: "Test Hero",
         superpower: "Testing",
         humilityScore: 7,
@@ -177,7 +188,7 @@ describe("Superhero API Tests", () => {
       });
 
       expect(response.statusCode).toBe(201);
-      const createdHero = JSON.parse(response.payload);
+      const createdHero = JSON.parse(response.payload) as Superhero;
 
       expect(createdHero.name).toBe(newHero.name);
       expect(createdHero.superpower).toBe(newHero.superpower);
@@ -219,7 +230,7 @@ describe("Superhero API Tests", () => {
   describe("DELETE /superheroes/:id", () => {
     test("should delete an existing superhero", async () => {
       // First create a hero to delete
-      const newHero = {
+      const newHero: CreateSuperheroRequest = {
         name: "Hero to Delete",
         superpower: "Deletion",
         humilityScore: 5,
@@ -231,7 +242,7 @@ describe("Superhero API Tests", () => {
         payload: newHero,
       });
 
-      const createdHero = JSON.parse(createResponse.payload);
+      const createdHero = JSON.parse(createResponse.payload) as Superhero;
 
       // Now delete the hero
       const deleteResponse = await app.inject({
@@ -240,7 +251,10 @@ describe("Superhero API Tests", () => {
       });
 
       expect(deleteResponse.statusCode).toBe(200);
-      const result = JSON.parse(deleteResponse.payload);
+      const result = JSON.parse(deleteResponse.payload) as {
+        message: string;
+        deletedHero: Superhero;
+      };
       expect(result.message).toBe("Superhero successfully deleted");
       expect(result.deletedHero.id).toBe(createdHero.id);
 
@@ -250,7 +264,7 @@ describe("Superhero API Tests", () => {
         url: "/superheroes",
       });
 
-      const remainingHeroes = JSON.parse(getResponse.payload);
+      const remainingHeroes = JSON.parse(getResponse.payload) as Superhero[];
       expect(
         remainingHeroes.find((hero) => hero.id === createdHero.id)
       ).toBeUndefined();
@@ -263,7 +277,7 @@ describe("Superhero API Tests", () => {
       });
 
       expect(response.statusCode).toBe(404);
-      const result = JSON.parse(response.payload);
+      const result = JSON.parse(response.payload) as { message: string };
       expect(result.message).toBe("Superhero not found");
     });
   });
