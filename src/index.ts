@@ -1,7 +1,15 @@
-import Fastify from "fastify";
+import Fastify, {
+  FastifyInstance,
+  FastifyRequest,
+  FastifyReply,
+} from "fastify";
 import cors from "@fastify/cors";
-import { Type } from "@sinclair/typebox";
+import { Static, Type } from "@sinclair/typebox";
 import { v4 as uuidv4 } from "uuid";
+
+type Superhero = Static<typeof SuperheroSchema>;
+
+type CreateSuperhero = Static<typeof CreateSuperheroSchema>;
 
 const SuperheroSchema = Type.Object({
   id: Type.String(),
@@ -11,14 +19,20 @@ const SuperheroSchema = Type.Object({
   avatar: Type.String(),
 });
 
-const app = Fastify().withTypeProvider();
+const CreateSuperheroSchema = Type.Object({
+  name: Type.String(),
+  superpower: Type.String(),
+  humilityScore: Type.Number({ minimum: 1, maximum: 10 }),
+});
+
+const app: FastifyInstance = Fastify().withTypeProvider();
 
 await app.register(cors, {
-  origin: "*", // Allow all origins (for development)
+  origin: "*",
   methods: ["GET", "POST", "DELETE"],
 });
 
-let superheroes = [
+let superheroes: Superhero[] = [
   {
     id: uuidv4(),
     name: "Captain Humility",
@@ -42,13 +56,7 @@ let superheroes = [
   },
 ];
 
-const CreateSuperheroSchema = Type.Object({
-  name: Type.String(),
-  superpower: Type.String(),
-  humilityScore: Type.Number({ minimum: 1, maximum: 10 }),
-});
-
-app.post(
+app.post<{ Body: CreateSuperhero }>(
   "/superheroes",
   {
     schema: {
@@ -58,10 +66,13 @@ app.post(
       },
     },
   },
-  async (request, reply) => {
-    const id = uuidv4(); // Generate a unique ID for the new superhero
-    const superhero = {
-      id: id,
+  async (
+    request: FastifyRequest<{ Body: CreateSuperhero }>,
+    reply: FastifyReply
+  ) => {
+    const id = uuidv4();
+    const superhero: Superhero = {
+      id,
       ...request.body,
       avatar: `https://api.dicebear.com/9.x/notionists/svg?scale=100&seed=${encodeURIComponent(
         request.body.name
@@ -82,30 +93,29 @@ app.get(
       },
     },
   },
-  async () => {
+  async (): Promise<Superhero[]> => {
     return superheroes.sort((a, b) => b.humilityScore - a.humilityScore);
   }
 );
 
-app.delete(
+app.delete<{ Params: { id: string } }>(
   "/superheroes/:id",
   {
     schema: {
-      params: Type.Object({
-        id: Type.String(),
-      }),
+      params: Type.Object({ id: Type.String() }),
       response: {
         200: Type.Object({
           message: Type.String(),
           deletedHero: SuperheroSchema,
         }),
-        404: Type.Object({
-          message: Type.String(),
-        }),
+        404: Type.Object({ message: Type.String() }),
       },
     },
   },
-  async (request, reply) => {
+  async (
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) => {
     const { id } = request.params;
     const heroIndex = superheroes.findIndex((hero) => hero.id === id);
 
@@ -126,10 +136,13 @@ app.delete(
 
 const start = async () => {
   try {
-    await app.listen({ port: process.env.PORT || 3001, host: "0.0.0.0" });
-    console.log("Server running on port 3001");
+    await app.listen({
+      port: Number(process.env.PORT) || 3002,
+      host: "0.0.0.0",
+    });
+    console.log("Server running on port 3002");
   } catch (err) {
-    app.log.error(err);
+    console.error(err);
     process.exit(1);
   }
 };
