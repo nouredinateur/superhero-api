@@ -5,10 +5,13 @@ import Fastify, {
 } from "fastify";
 import cors from "@fastify/cors";
 import { Static, Type } from "@sinclair/typebox";
-import { v4 as uuidv4 } from "uuid";
+import { SuperheroService } from './database/superheroService.js';
+import { initializeDatabase } from './database/init.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 type Superhero = Static<typeof SuperheroSchema>;
-
 type CreateSuperhero = Static<typeof CreateSuperheroSchema>;
 
 const SuperheroSchema = Type.Object({
@@ -25,37 +28,20 @@ const CreateSuperheroSchema = Type.Object({
   humilityScore: Type.Number({ minimum: 1, maximum: 10 }),
 });
 
+const UpdateSuperheroSchema = Type.Object({
+  name: Type.Optional(Type.String()),
+  superpower: Type.Optional(Type.String()),
+  humilityScore: Type.Optional(Type.Number({ minimum: 1, maximum: 10 })),
+});
+
 const app: FastifyInstance = Fastify().withTypeProvider();
 
 await app.register(cors, {
   origin: "*",
-  methods: ["GET", "POST", "DELETE"],
+  methods: ["GET", "POST", "PUT", "DELETE"],
 });
 
-let superheroes: Superhero[] = [
-  {
-    id: uuidv4(),
-    name: "Captain Humility",
-    superpower: "Self-awareness",
-    humilityScore: 10,
-    avatar: `https://api.dicebear.com/9.x/notionists/svg?scale=100&seed=CaptainHumility`,
-  },
-  {
-    id: uuidv4(),
-    name: "Modesty Woman",
-    superpower: "Power Reflection",
-    humilityScore: 9,
-    avatar: `https://api.dicebear.com/9.x/notionists/svg?scale=100&seed=ModestyWoman`,
-  },
-  {
-    id: uuidv4(),
-    name: "Honest Arrow",
-    superpower: "Truth Perception",
-    humilityScore: 8,
-    avatar: `https://api.dicebear.com/9.x/notionists/svg?scale=100&seed=HonestArrow`,
-  },
-];
-
+// Create superhero
 app.post<{ Body: CreateSuperhero }>(
   "/superheroes",
   {
@@ -70,20 +56,18 @@ app.post<{ Body: CreateSuperhero }>(
     request: FastifyRequest<{ Body: CreateSuperhero }>,
     reply: FastifyReply
   ) => {
-    const id = uuidv4();
-    const superhero: Superhero = {
-      id,
-      ...request.body,
-      avatar: `https://api.dicebear.com/9.x/notionists/svg?scale=100&seed=${encodeURIComponent(
-        request.body.name
-      )}`,
-    };
-    superheroes.push(superhero);
-    reply.code(201);
-    return superhero;
+    try {
+      const superhero = await SuperheroService.createSuperhero(request.body);
+      reply.code(201);
+      return superhero;
+    } catch (error) {
+      reply.code(500);
+      return { error: 'Failed to create superhero' };
+    }
   }
 );
 
+// Get all superheroes
 app.get(
   "/superheroes",
   {
@@ -94,10 +78,83 @@ app.get(
     },
   },
   async (): Promise<Superhero[]> => {
-    return superheroes.sort((a, b) => b.humilityScore - a.humilityScore);
+    try {
+      return await SuperheroService.getAllSuperheroes();
+    } catch (error) {
+      throw new Error('Failed to fetch superheroes');
+    }
   }
 );
 
+// Get superhero by ID
+app.get<{ Params: { id: string } }>(
+  "/superheroes/:id",
+  {
+    schema: {
+      params: Type.Object({ id: Type.String() }),
+      response: {
+        200: SuperheroSchema,
+        404: Type.Object({ message: Type.String() }),
+      },
+    },
+  },
+  async (
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const superhero = await SuperheroService.getSuperheroById(request.params.id);
+      
+      if (!superhero) {
+        reply.code(404);
+        return { message: "Superhero not found" };
+      }
+      
+      return superhero;
+    } catch (error) {
+      reply.code(500);
+      return { error: 'Failed to fetch superhero' };
+    }
+  }
+);
+
+// Update superhero
+app.put<{ Params: { id: string }; Body: Partial<CreateSuperhero> }>(
+  "/superheroes/:id",
+  {
+    schema: {
+      params: Type.Object({ id: Type.String() }),
+      body: UpdateSuperheroSchema,
+      response: {
+        200: SuperheroSchema,
+        404: Type.Object({ message: Type.String() }),
+      },
+    },
+  },
+  async (
+    request: FastifyRequest<{ Params: { id: string }; Body: Partial<CreateSuperhero> }>,
+    reply: FastifyReply
+  ) => {
+    try {
+      const updatedSuperhero = await SuperheroService.updateSuperhero(
+        request.params.id,
+        request.body
+      );
+      
+      if (!updatedSuperhero) {
+        reply.code(404);
+        return { message: "Superhero not found" };
+      }
+      
+      return updatedSuperhero;
+    } catch (error) {
+      reply.code(500);
+      return { error: 'Failed to update superhero' };
+    }
+  }
+);
+
+// Delete superhero
 app.delete<{ Params: { id: string } }>(
   "/superheroes/:id",
   {
@@ -116,26 +173,31 @@ app.delete<{ Params: { id: string } }>(
     request: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply
   ) => {
-    const { id } = request.params;
-    const heroIndex = superheroes.findIndex((hero) => hero.id === id);
-
-    if (heroIndex === -1) {
-      reply.code(404);
-      return { message: "Superhero not found" };
+    try {
+      const deletedHero = await SuperheroService.deleteSuperhero(request.params.id);
+      
+      if (!deletedHero) {
+        reply.code(404);
+        return { message: "Superhero not found" };
+      }
+      
+      return {
+        message: "Superhero successfully deleted",
+        deletedHero,
+      };
+    } catch (error) {
+      reply.code(500);
+      return { error: 'Failed to delete superhero' };
     }
-
-    const deletedHero = superheroes[heroIndex];
-    superheroes = superheroes.filter((hero) => hero.id !== id);
-
-    return {
-      message: "Superhero successfully deleted",
-      deletedHero,
-    };
   }
 );
 
 const start = async () => {
   try {
+    // Initialize database and seed initial data
+    await initializeDatabase();
+    await SuperheroService.seedInitialData();
+    
     await app.listen({
       port: Number(process.env.PORT) || 3002,
       host: "0.0.0.0",
